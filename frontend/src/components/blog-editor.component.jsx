@@ -7,14 +7,20 @@ import fileUpload from "../common/aws";
 import deletePhoto from "../common/deletePhoto";
 import { Toaster, toast } from "react-hot-toast";
 
-import { useContext, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { EditorContext } from "../pages/editor.pages";
+import EditorJS from "@editorjs/editorjs";
+import { tools } from "../components/tools.component";
+import { translate } from "./translate-editor.component";
 
 const BlogEditor = () => {
   let {
     blog,
     blog: { title, banner, content, tags, des },
     setBlog,
+    textEditor,
+    setTextEditor,
+    setEditorState,
   } = useContext(EditorContext);
   const [url, setUrl] = useState({});
   const [image, setImage] = useState({
@@ -22,10 +28,41 @@ const BlogEditor = () => {
     raw: "",
   });
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    setTextEditor(
+      new EditorJS({
+        holderId: "text-Editor",
+        data: content,
+        placeholder: "Начните писать...",
+        tools: tools,
+        i18n: translate,
+      })
+    );
+  }, []);
+
+  const handlePublishEvent = () => {
+    if (!banner.length) {
+      return toast.error("Загрузите главное фото");
+    }
+    if (!title.length) {
+      return toast.error("Нет заголовка");
+    }
+    if (textEditor.isReady) {
+      textEditor
+        .save()
+        .then((data) => {
+          if (data.blocks.length) {
+            setBlog({ ...blog, content: data });
+            setEditorState("publish");
+            scrollTop();
+          } else {
+            return toast.error("Нечего публиковать, напишите что-то");
+          }
+        })
+        .catch((err) => console.log(err));
+    }
   };
-  console.log(blog);
+
   const handleBannerUpload = async (e) => {
     if (e.target.files.length) {
       setImage({
@@ -81,7 +118,9 @@ const BlogEditor = () => {
           {title.length ? title : "Новая запись"}
         </p>
         <div className="flex gap-4 ml-auto">
-          <button className="btn-dark py-2">Опубликовать</button>
+          <button className="btn-dark py-2" onClick={handlePublishEvent}>
+            Опубликовать
+          </button>
           <button className="btn-light py-2">Сохранить черновик</button>
         </div>
       </nav>
@@ -100,7 +139,7 @@ const BlogEditor = () => {
                   </span>
                 )}
                 <img
-                  src={image.preview || defaultBanner}
+                  src={`http://localhost:3000/${banner}` || defaultBanner}
                   className="z-20 object-cover w-full h-full"
                   alt="banner"
                   onError={handleError}
@@ -117,6 +156,7 @@ const BlogEditor = () => {
             </div>
 
             <textarea
+              defaultValue={title}
               placeholder="Заголовок записи"
               className="text-4xl font-medium w-full h-20 outline-none resize-none mt-10 leading-tight placeholder:opacity-40"
               onKeyDown={handleTitleKeyDown}
