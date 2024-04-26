@@ -5,21 +5,26 @@ import bcryptjs from "bcryptjs";
 import Users from "./Schema/User.js";
 import User from "./Schema/User.js";
 import { nanoid } from "nanoid";
+import fs from "fs";
 import jwt from "jsonwebtoken";
 import cors from "cors";
 import admin from "firebase-admin";
 import serviceAccountKey from "./mern-blog-724b0-firebase-adminsdk-lvx2u-2581dc5138.json" assert { type: "json" };
 import { getAuth } from "firebase-admin/auth";
+import path from "path";
+import fileUpload from "express-fileupload";
 
 let emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/; // regex for email
 let passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/; // regex for password
 
 const app = express();
 dotenv.config();
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(fileUpload());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
-
+//app.use("/uploads", express.static("uploads"));
+app.use(express.static("uploads"));
 mongoose.connect("mongodb://localhost:27017/blogasdzen", {
   autoIndex: true,
 });
@@ -49,6 +54,42 @@ const formatDatatoSend = (user) => {
     username: user.personal_info.username,
   };
 };
+
+app.post("/deletephoto", (req, res) => {
+  console.log(req.body.path);
+  fs.unlink(`./uploads/${req.body.path}`, (err) => {
+    if (err) {
+      return res.status(500).send({ msg: "Error occured" });
+    } else {
+      return res.status(200).send({ msg: "Photo deleted" });
+    }
+  });
+});
+
+app.post("/upload", (req, res) => {
+  if (!req.files) {
+    return res.status(500).send({ msg: "file is not found" });
+  }
+
+  const myFile = req.files.image;
+  let myFileName = myFile.name.slice(0, myFile.name.lastIndexOf("."));
+  const myFileExt = myFile.name.slice(myFile.name.lastIndexOf(".") + 1);
+  console.log(myFileExt);
+  let newMyfileName = new Date().getTime() + "." + myFileExt;
+
+  // метод mv() помещает файл в папку public
+  console.log(req.files.image);
+  myFile.mv(`./uploads/${new Date().getMonth()}/${newMyfileName}`, (err) => {
+    if (err) {
+      console.log(err);
+      return res.status(500).send({ msg: "Error occured" });
+    }
+  });
+  return res.status(200).json({
+    fileName: newMyfileName,
+    path: "/" + new Date().getMonth() + "/" + newMyfileName,
+  });
+});
 
 app.post("/signup", async (req, res) => {
   let { email, password, fullname } = req.body;
