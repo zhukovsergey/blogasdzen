@@ -12,8 +12,14 @@ import { EditorContext } from "../pages/editor.pages";
 import EditorJS from "@editorjs/editorjs";
 import { tools } from "../components/tools.component";
 import { translate } from "./translate-editor.component";
+import { UserContext } from "../App";
+import { useNavigate } from "react-router-dom";
 
 const BlogEditor = () => {
+  const navigate = useNavigate();
+  let {
+    userAuth: { access_token },
+  } = useContext(UserContext);
   let {
     blog,
     blog: { title, banner, content, tags, des },
@@ -29,16 +35,59 @@ const BlogEditor = () => {
   });
 
   useEffect(() => {
-    setTextEditor(
-      new EditorJS({
-        holderId: "text-Editor",
-        data: content,
-        placeholder: "Начните писать...",
-        tools: tools,
-        i18n: translate,
-      })
-    );
+    if (!textEditor.isReady) {
+      setTextEditor(
+        new EditorJS({
+          holderId: "text-Editor",
+          data: content,
+          placeholder: "Начните писать...",
+          tools: tools,
+          i18n: translate,
+        })
+      );
+    }
   }, []);
+
+  const handleSaveDraft = (e) => {
+    if (e.target.className.includes("disable")) {
+      return;
+    }
+    if (!title.length) {
+      return toast.error("Напишите заголовок перед сохранением черновика");
+    }
+
+    let loadingToast = toast.loading("Сохраняем черновик...🙂");
+    e.target.classList.add("disable");
+    if (textEditor.isReady) {
+      textEditor.save().then((content) => {
+        let blogObj = {
+          title,
+          banner,
+          content,
+          tags,
+          des,
+          draft: true,
+        };
+        axios
+          .post(import.meta.env.VITE_SERVER_DOMAIN + "/create-blog", blogObj, {
+            headers: { Authorization: `Bearer ${access_token}` },
+          })
+          .then(() => {
+            e.target.classList.remove("disable");
+            toast.dismiss(loadingToast);
+            toast.success("Черновки сохранен 👍");
+            setTimeout(() => {
+              navigate("/");
+            }, 500);
+          })
+          .catch(({ response }) => {
+            e.target.classList.remove("disable");
+            toast.dismiss(loadingToast);
+            return toast.error(response.data.error);
+          });
+      });
+    }
+  };
 
   const handlePublishEvent = () => {
     if (!banner.length) {
@@ -54,7 +103,6 @@ const BlogEditor = () => {
           if (data.blocks.length) {
             setBlog({ ...blog, content: data });
             setEditorState("publish");
-            scrollTop();
           } else {
             return toast.error("Нечего публиковать, напишите что-то");
           }
@@ -121,7 +169,9 @@ const BlogEditor = () => {
           <button className="btn-dark py-2" onClick={handlePublishEvent}>
             Опубликовать
           </button>
-          <button className="btn-light py-2">Сохранить черновик</button>
+          <button className="btn-light py-2" onClick={handleSaveDraft}>
+            Сохранить черновик
+          </button>
         </div>
       </nav>
       <Toaster />

@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import bcryptjs from "bcryptjs";
 import Users from "./Schema/User.js";
 import User from "./Schema/User.js";
+import Blogs from "./Schema/Blog.js";
 import { nanoid } from "nanoid";
 import fs from "fs";
 import jwt from "jsonwebtoken";
@@ -13,6 +14,7 @@ import serviceAccountKey from "./mern-blog-724b0-firebase-adminsdk-lvx2u-2581dc5
 import { getAuth } from "firebase-admin/auth";
 import path from "path";
 import fileUpload from "express-fileupload";
+import { translit } from "./utils/translit.js";
 
 let emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/; // regex for email
 let passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/; // regex for password
@@ -45,6 +47,17 @@ const generateUSername = async (email) => {
   return username;
 };
 
+const verifyJWT = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+  if (token == null)
+    return res.status(401).json({ error: "No token provided" });
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: "Invalid token" });
+    req.user = user.id;
+    next();
+  });
+};
 const formatDatatoSend = (user) => {
   const access_token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
   return {
@@ -220,6 +233,74 @@ app.post("/google-auth", async (req, res) => {
     .catch((err) => {
       console.log(err);
       return res.status(500).json({ error: err.message });
+    });
+});
+
+app.post("/create-blog", verifyJWT, (req, res) => {
+  let authorId = req.user;
+  let { title, des, banner, tags, content, draft } = req.body;
+  if (!title.length) {
+    return res.status(403).json({ error: "Заголовок не может быть пустым" });
+  }
+
+  if (!draft) {
+    if (!des.length || des.length > 200) {
+      return res.status(403).json({
+        error: "Описание не может быть пустым или больше 200 символов",
+      });
+    }
+    if (!banner.length) {
+      return res.status(403).json({ error: "Главное  не может быть пустым" });
+    }
+    if (!content.blocks.length) {
+      return res.status(403).jsob({ error: "Контент не может быть пустым" });
+    }
+    if (!tags.length || tags.length > 10) {
+      return res
+        .status(403)
+        .json({ error: "Добавьте хоть 1 тег. Тегов не должно быть больше 10" });
+    }
+  }
+
+  tags = tags.map((tag) => tag.toLowerCase());
+  let blog_id =
+    translit(req.body.title)
+      .replace(/[^a-zA-Z0-9]/g, " ")
+      .replace(/\s+/g, "-")
+      .toLowerCase()
+      .trim() + nanoid(3);
+
+  let blog = new Blogs({
+    title,
+    des,
+    banner,
+    content,
+    tags,
+    author: authorId,
+    blog_id,
+    draft: Boolean(draft),
+  });
+
+  blog
+    .save()
+    .then((blog) => {
+      let incrementVal = draft ? 0 : 1;
+      User.findOneAndUpdate(
+        { _id: authorId },
+        {
+          $inc: { "account_info.total_posts": incrementVal },
+          $push: { blogs: blog._id },
+        }
+      )
+        .then((user) => {
+          return res.status(200).json({ id: blog.blog_id });
+        })
+        .catch((err) => {
+          res.status(500).json({ error: err.message });
+        });
+    })
+    .catch((err) => {
+      res.status(500).json({ error: err.message });
     });
 });
 

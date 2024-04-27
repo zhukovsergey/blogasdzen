@@ -3,6 +3,9 @@ import AnimationWrapper from "../common/page-animation";
 import { Toaster, toast } from "react-hot-toast";
 import { EditorContext } from "../pages/editor.pages";
 import Tag from "./tags.component";
+import { UserContext } from "../App";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 const PublishForm = () => {
   let characterLimit = 200;
@@ -13,6 +16,10 @@ const PublishForm = () => {
     setEditorState,
     setBlog,
   } = useContext(EditorContext);
+  let navigate = useNavigate();
+  let {
+    userAuth: { access_token },
+  } = useContext(UserContext);
   const handleCloseEvent = () => {
     setEditorState("editor");
   };
@@ -42,6 +49,55 @@ const PublishForm = () => {
       }
     }
   };
+
+  const publishBlog = (e) => {
+    if (e.target.className.includes("disable")) {
+      return;
+    }
+    if (!title.length) {
+      return toast.error("Заголовок не может быть пустым");
+    }
+    if (!des.length || des.length > characterLimit) {
+      return toast.error(
+        `Описание не может быть пустым или больше ${characterLimit} символов`
+      );
+    }
+    if (!tags.length) {
+      return toast.error(
+        `Добавьте хоть 1 тег. Тегов не должно быть больше ${tagLimit}`
+      );
+    }
+    if (!banner.length) {
+      return toast.error("Загрузите главное фото");
+    }
+    let loadingToast = toast.loading("Загрузка...🙂");
+    e.target.classList.add("disable");
+    let blogObj = {
+      title,
+      banner,
+      content,
+      tags,
+      des,
+      draft: false,
+    };
+    axios
+      .post(import.meta.env.VITE_SERVER_DOMAIN + "/create-blog", blogObj, {
+        headers: { Authorization: `Bearer ${access_token}` },
+      })
+      .then(() => {
+        e.target.classList.remove("disable");
+        toast.dismiss(loadingToast);
+        toast.success("Запись успешно создана 👍");
+        setTimeout(() => {
+          navigate("/");
+        }, 500);
+      })
+      .catch(({ response }) => {
+        e.target.classList.remove("disable");
+        toast.dismiss(loadingToast);
+        return toast.error(response.data.error);
+      });
+  };
   return (
     <AnimationWrapper>
       <section className="w-screen min-h-screen grid items-center lg:grid-cols-2 py-16 lg:gap-4">
@@ -69,8 +125,9 @@ const PublishForm = () => {
           <p className="text-dark-grey mb-2 mt-9">Заголовок записи</p>
           <input
             type="text"
+            value={title}
             placeholder="Заголовок записи"
-            defautValue={title}
+            defautvalue={title}
             className="input-box pl-4"
             onChange={handleBlogTitleChange}
           />
@@ -100,6 +157,13 @@ const PublishForm = () => {
               return <Tag tag={tag} tagIndex={i} key={i} />;
             })}
           </div>
+          <p className="mt-1 mb-4 text-dark-grey text-right text-sm">
+            {" "}
+            Еще можно добавить {tagLimit - tags.length}
+          </p>
+          <button className="btn-dark px-8" onClick={publishBlog}>
+            Опубликовать
+          </button>
         </div>
       </section>
     </AnimationWrapper>

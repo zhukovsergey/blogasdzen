@@ -12,14 +12,25 @@ const Tag = ({ tag, tagIndex }) => {
     setBlog({ ...blog, tags });
   };
   const handleTagEdit = (e) => {
-      if(e.keyCode==13 || e.keyCode==188){
-        e.preventDefault();
-        let currentTag = e.target.value
-      }
-  }
+    if (e.keyCode == 13 || e.keyCode == 188) {
+      e.preventDefault();
+      let currentTag = e.target.innerText;
+      tags[tagIndex] = currentTag;
+      setBlog({ ...blog, tags });
+      e.target.setAttribute("contenteditable", "false");
+    }
+  };
+  const addEditable = (e) => {
+    e.target.setAttribute("contenteditable", "true");
+    e.target.focus();
+  };
   return (
     <div className="relative p-2 mt-2 mr-2 px-5 bg-white rounded-full inline-block hover:bg-opacity-50 pr-10">
-      <p className="outline-none" contentEditable="true" onKeyDown={handleTagEdit}>
+      <p
+        className="outline-none"
+        onKeyDown={handleTagEdit}
+        onClick={addEditable}
+      >
         {tag}
       </p>
       <button
