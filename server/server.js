@@ -236,6 +236,67 @@ app.post("/google-auth", async (req, res) => {
     });
 });
 
+app.post("/search-blogs", async (req, res) => {
+  let { tag } = req.body;
+  console.log(tag);
+  let findQuery = { tags: tag, draft: false };
+  let maxLimit = 5;
+  Blogs.find({ tags: tag, draft: false })
+    .populate(
+      "author",
+      "personal_info.profile_img personal_info.username personal_info.fullname -_id"
+    )
+    .sort({ publishedAt: -1 })
+    .select("blog_id title banner des activity tags publishedAt -_id")
+    .limit(maxLimit)
+    .then((blogs) => {
+      console.log(blogs);
+      return res.status(200).json({ blogs });
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+app.get("/trending-blogs", async (req, res) => {
+  Blogs.find({ draft: false })
+    .populate(
+      "author",
+      "personal_info.profile_img personal_info.username personal_info.fullname -_id"
+    )
+    .sort({
+      "activity.total_read": -1,
+      "activity.total_likes": -1,
+      publishedAt: -1,
+    })
+    .select("blog_id activity title publishedAt -_id")
+    .limit(5)
+    .then((blogs) => {
+      return res.status(200).json({ blogs });
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+app.get("/latest-blogs", async (req, res) => {
+  let maxLimit = 5;
+  Blogs.find({ draft: false })
+    .populate(
+      "author",
+      "personal_info.profile_img personal_info.username personal_info.fullname -_id"
+    )
+    .sort({ publishedAt: -1 })
+    .select("blog_id title banner des activity tags publishedAt -_id")
+    .limit(maxLimit)
+    .then((blogs) => {
+      return res.status(200).json({ blogs });
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
 app.post("/create-blog", verifyJWT, (req, res) => {
   let authorId = req.user;
   let { title, des, banner, tags, content, draft } = req.body;
