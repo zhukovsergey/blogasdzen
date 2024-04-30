@@ -10,6 +10,15 @@ import NoDataMessage from "../components/nodata.component";
 
 const HomePage = () => {
   let [blogs, setBlogs] = useState(null);
+
+  blogs = [{}, {}, {}];
+
+  blogs = {
+    result: [{}, {}, {}],
+    page: 1,
+    totalDocs: 10,
+  };
+
   let [trendingBlogs, setTrendingBlogs] = useState(null);
   let categories = ["сериалы", "шоу", "дорамы", "кулинария", "музыка"];
   let [pageState, setPageState] = useState("home");
@@ -18,7 +27,6 @@ const HomePage = () => {
       .get(import.meta.env.VITE_SERVER_DOMAIN + "/trending-blogs")
       .then((res) => {
         setTrendingBlogs(res.data.blogs);
-        console.log(res.data.blogs);
       })
       .catch((err) => {
         console.log(err);
@@ -29,7 +37,6 @@ const HomePage = () => {
       .get(import.meta.env.VITE_SERVER_DOMAIN + "/latest-blogs")
       .then((res) => {
         setBlogs(res.data.blogs);
-        console.log(res.data.blogs);
       })
       .catch((err) => {
         console.log(err);
