@@ -236,18 +236,40 @@ app.post("/google-auth", async (req, res) => {
     });
 });
 
+app.post("/search-users", async (req, res) => {
+  let { query } = req.body;
+  User.find({ "personal_info.username": new RegExp(query, "i") })
+    .limit(50)
+    .select(
+      "personal_info.fullname personal_info.username personal_info.profile_img -_id"
+    )
+    .then((users) => {
+      return res.status(200).json({ users });
+    })
+    .catch((err) => {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    });
+});
+
 app.post("/search-blogs", async (req, res) => {
-  let { tag } = req.body;
-  console.log(tag);
-  let findQuery = { tags: tag, draft: false };
+  let { tag, query, page } = req.body;
+
+  let findQuery;
+  if (tag) {
+    findQuery = { tags: tag, draft: false };
+  } else if (query) {
+    findQuery = { draft: false, title: new RegExp(query, "i") };
+  }
   let maxLimit = 5;
-  Blogs.find({ tags: tag, draft: false })
+  Blogs.find(findQuery)
     .populate(
       "author",
       "personal_info.profile_img personal_info.username personal_info.fullname -_id"
     )
     .sort({ publishedAt: -1 })
     .select("blog_id title banner des activity tags publishedAt -_id")
+    .skip((page - 1) * maxLimit)
     .limit(maxLimit)
     .then((blogs) => {
       console.log(blogs);
@@ -279,7 +301,8 @@ app.get("/trending-blogs", async (req, res) => {
     });
 });
 
-app.get("/latest-blogs", async (req, res) => {
+app.post("/latest-blogs", async (req, res) => {
+  let { page } = req.body;
   let maxLimit = 5;
   Blogs.find({ draft: false })
     .populate(
@@ -288,11 +311,41 @@ app.get("/latest-blogs", async (req, res) => {
     )
     .sort({ publishedAt: -1 })
     .select("blog_id title banner des activity tags publishedAt -_id")
+    .skip((page - 1) * maxLimit)
     .limit(maxLimit)
     .then((blogs) => {
       return res.status(200).json({ blogs });
     })
     .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+app.post("/all-latest-blogs-count", async (req, res) => {
+  Blogs.countDocuments({ draft: false })
+    .then((count) => {
+      return res.status(200).json({ totalDocs: count });
+    })
+    .catch((err) => {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+app.post("/search-blogs-count", async (req, res) => {
+  let { tag, query } = req.body;
+  let findQuery;
+  if (tag) {
+    findQuery = { tags: tag, draft: false };
+  } else if (query) {
+    findQuery = { draft: false, title: new RegExp(query, "i") };
+  }
+  Blogs.countDocuments(findQuery)
+    .then((count) => {
+      return res.status(200).json({ totalDocs: count });
+    })
+    .catch((err) => {
+      console.log(err);
       return res.status(500).json({ error: err.message });
     });
 });

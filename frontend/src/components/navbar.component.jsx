@@ -3,8 +3,10 @@ import logo from "../imgs/logo.png";
 import { useContext, useState } from "react";
 import { UserContext } from "../App";
 import UserNavigationPanel from "./user-navigation.component";
+import { useNavigate } from "react-router-dom";
 
 const Navbar = () => {
+  const navigate = useNavigate();
   const [searchBoxVisibility, setSearchBoxVisibility] = useState(false);
   const [userNavPanel, setUserNavPanel] = useState(false);
 
@@ -20,6 +22,12 @@ const Navbar = () => {
     setTimeout(() => {
       setUserNavPanel(false);
     }, 200);
+  };
+  const handleSearch = (e) => {
+    let query = e.target.value;
+    if (e.keyCode == 13 && query.length) {
+      navigate(`/search/${query}`);
+    }
   };
   return (
     <>
@@ -39,6 +47,7 @@ const Navbar = () => {
             placeholder="Поиск"
             className="w-full md:w-auto bg-grey p-4 pl-6 pr-[12%] md:pr-6 
           rounded-full placeholder:text-dark-grey md:pl-12"
+            onKeyDown={handleSearch}
           />
           <i
             className="fi fi-rr-search absolute right-[10%] 

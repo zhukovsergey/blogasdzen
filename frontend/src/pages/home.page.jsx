@@ -7,17 +7,11 @@ import BlogPostCard from "../components/blog-post.component";
 import MinimalBlogPost from "../components/nobanner-blog-post.component";
 import { activeTabRef } from "../components/inpage-navigation.component";
 import NoDataMessage from "../components/nodata.component";
+import { filterPaginationData } from "../common/filter-pagination-data";
+import LoadMoreDataBtn from "../components/load-more.component";
 
 const HomePage = () => {
   let [blogs, setBlogs] = useState(null);
-
-  blogs = [{}, {}, {}];
-
-  blogs = {
-    result: [{}, {}, {}],
-    page: 1,
-    totalDocs: 10,
-  };
 
   let [trendingBlogs, setTrendingBlogs] = useState(null);
   let categories = ["сериалы", "шоу", "дорамы", "кулинария", "музыка"];
@@ -32,24 +26,39 @@ const HomePage = () => {
         console.log(err);
       });
   };
-  const fetchLatestBlogs = () => {
+  const fetchLatestBlogs = ({ page = 1 }) => {
     axios
-      .get(import.meta.env.VITE_SERVER_DOMAIN + "/latest-blogs")
-      .then((res) => {
-        setBlogs(res.data.blogs);
+      .post(import.meta.env.VITE_SERVER_DOMAIN + "/latest-blogs", { page })
+      .then(async (res) => {
+        console.log(res.data.blogs);
+        let formatedData = await filterPaginationData({
+          state: blogs,
+          data: res.data.blogs,
+          page,
+          countRoute: "/all-latest-blogs-count",
+        });
+        setBlogs(formatedData);
+        console.log(formatedData);
       })
       .catch((err) => {
         console.log(err);
       });
   };
-  const fetchBlogsByCategory = () => {
+  const fetchBlogsByCategory = ({ page = 1 }) => {
     axios
       .post(import.meta.env.VITE_SERVER_DOMAIN + "/search-blogs", {
         tag: pageState,
+        page,
       })
-      .then((res) => {
-        setBlogs(res.data.blogs);
-        console.log(res.data.blogs);
+      .then(async (res) => {
+        let formatedData = await filterPaginationData({
+          state: blogs,
+          data: res.data.blogs,
+          page,
+          countRoute: "/search-blogs-count",
+          data_to_send: { tag: pageState },
+        });
+        setBlogs(formatedData);
       })
       .catch((err) => {
         console.log(err);
@@ -69,9 +78,9 @@ const HomePage = () => {
   useEffect(() => {
     activeTabRef.current.click;
     if (pageState == "home") {
-      fetchLatestBlogs();
+      fetchLatestBlogs({ page: 1 });
     } else {
-      fetchBlogsByCategory();
+      fetchBlogsByCategory({ page: 1 });
     }
     if (!trendingBlogs) {
       fetchTrendingBlogs();
@@ -89,8 +98,8 @@ const HomePage = () => {
             <>
               {blogs == null ? (
                 <Loader />
-              ) : blogs.length ? (
-                blogs.map((blog, i) => {
+              ) : blogs.results.length ? (
+                blogs.results.map((blog, i) => {
                   return (
                     <AnimationWrapper
                       transition={{ duration: 1, delay: i * 0.1 }}
@@ -106,6 +115,12 @@ const HomePage = () => {
               ) : (
                 <NoDataMessage message="Нет опубликованных постов в этой категории" />
               )}
+              <LoadMoreDataBtn
+                state={blogs}
+                fetchDataFun={
+                  (pageState == "home" ? fetchLatestBlogs : fetchBlogsByCategory)
+                }
+              />
             </>
             <>
               {trendingBlogs == null ? (
