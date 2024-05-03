@@ -367,6 +367,36 @@ app.post("/search-blogs-count", async (req, res) => {
     });
 });
 
+app.post("/get-blog", async (req, res) => {
+  let { blog_id } = req.body;
+  let incrementVal = 1;
+  Blogs.findOneAndUpdate(
+    { blog_id },
+    { $inc: { "activity.total_reads": incrementVal } }
+  )
+    .populate(
+      "author",
+      "personal_info.fullname personal_info.username personal_info.profile_img"
+    )
+    .select(" title des content banner activity publishedAt blog_id tags ")
+    .then((blog) => {
+      User.findOneAndUpdate(
+        {
+          "personal_info.username": blog.author.personal_info.username,
+        },
+        {
+          $inc: { "account_info.total_reads": incrementVal },
+        }
+      ).catch((err) => {
+        res.status(500).json({ error: err.message });
+      });
+      return res.status(200).json({ blog });
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
 app.post("/create-blog", verifyJWT, (req, res) => {
   let authorId = req.user;
   let { title, des, banner, tags, content, draft } = req.body;
