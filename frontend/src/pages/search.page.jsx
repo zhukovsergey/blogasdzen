@@ -8,6 +8,7 @@ import NoDataMessage from "../components/nodata.component";
 import LoadMoreDataBtn from "../components/load-more.component";
 import axios from "axios";
 import { filterPaginationData } from "../common/filter-pagination-data";
+import UserCard from "../components/usercard.component";
 const SearchPage = () => {
   let { query } = useParams();
   let [blogs, setBlogs] = useState(null);
@@ -60,7 +61,14 @@ const SearchPage = () => {
           <Loader />
         ) : users.length ? (
           users.map((user, i) => {
-            return user;
+            return (
+              <AnimationWrapper
+                key={i}
+                transition={{ duration: 1, delay: i * 0.1 }}
+              >
+                <UserCard user={user} />
+              </AnimationWrapper>
+            );
           })
         ) : (
           <NoDataMessage message="Пользователи не найдены" />
@@ -99,6 +107,11 @@ const SearchPage = () => {
           </>
           <UserCardWrapper />
         </InPageNavigation>
+      </div>
+      <div className="min-w-[40%] lg:min-2-[350px] max-w-min border-1 border-grey pl-8 pt-3 max-md:hidden">
+        <h1 className="font-medium text-xl mb-8">
+          Пользователи связанные с поиском <i className="fi fi-rr-user"></i>
+        </h1>
       </div>
     </section>
   );
