@@ -15,6 +15,8 @@ import { getAuth } from "firebase-admin/auth";
 import path from "path";
 import fileUpload from "express-fileupload";
 import { translit } from "./utils/translit.js";
+import Notification from "./Schema/Notification.js";
+import Comment from "./Schema/Comment.js";
 
 let emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/; // regex for email
 let passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/; // regex for password
@@ -266,17 +268,17 @@ app.post("/get-profile", async (req, res) => {
 });
 
 app.post("/search-blogs", async (req, res) => {
-  let { tag, query, page, author } = req.body;
+  let { tag, query, page, author, limit, eliminate_blog } = req.body;
 
   let findQuery;
   if (tag) {
-    findQuery = { tags: tag, draft: false };
+    findQuery = { tags: tag, draft: false, blog_id: { $ne: eliminate_blog } };
   } else if (query) {
     findQuery = { draft: false, title: new RegExp(query, "i") };
   } else if (author) {
     findQuery = { author, draft: false };
   }
-  let maxLimit = 5;
+  let maxLimit = limit ? limit : 5;
   Blogs.find(findQuery)
     .populate(
       "author",
@@ -287,7 +289,6 @@ app.post("/search-blogs", async (req, res) => {
     .skip((page - 1) * maxLimit)
     .limit(maxLimit)
     .then((blogs) => {
-      console.log(blogs);
       return res.status(200).json({ blogs });
     })
     .catch((err) => {
@@ -368,8 +369,8 @@ app.post("/search-blogs-count", async (req, res) => {
 });
 
 app.post("/get-blog", async (req, res) => {
-  let { blog_id } = req.body;
-  let incrementVal = 1;
+  let { blog_id, draft, mode } = req.body;
+  let incrementVal = mode !== "edit" ? 1 : 0;
   Blogs.findOneAndUpdate(
     { blog_id },
     { $inc: { "activity.total_reads": incrementVal } }
@@ -390,6 +391,12 @@ app.post("/get-blog", async (req, res) => {
       ).catch((err) => {
         res.status(500).json({ error: err.message });
       });
+
+      if (blog.draft && !draft) {
+        return res
+          .status(500)
+          .json({ error: "У вас нет доступа к черновикам" });
+      }
       return res.status(200).json({ blog });
     })
     .catch((err) => {
@@ -399,7 +406,7 @@ app.post("/get-blog", async (req, res) => {
 
 app.post("/create-blog", verifyJWT, (req, res) => {
   let authorId = req.user;
-  let { title, des, banner, tags, content, draft } = req.body;
+  let { title, des, banner, tags, content, draft, id } = req.body;
   if (!title.length) {
     return res.status(403).json({ error: "Заголовок не может быть пустым" });
   }
@@ -425,44 +432,164 @@ app.post("/create-blog", verifyJWT, (req, res) => {
 
   tags = tags.map((tag) => tag.toLowerCase());
   let blog_id =
+    id ||
     translit(req.body.title)
       .replace(/[^a-zA-Z0-9]/g, " ")
       .replace(/\s+/g, "-")
       .toLowerCase()
       .trim() + nanoid(3);
+  if (id) {
+    Blogs.findOneAndUpdate(
+      { blog_id },
+      { title, des, banner, content, tags, draft: draft ? draft : false }
+    )
+      .then(() => {
+        return res.status(200).json({ id: blog_id });
+      })
+      .catch((err) => {
+        return res
+          .status(500)
+          .json({ error: "Failed to update total posts number" });
+      });
+  } else {
+    let blog = new Blogs({
+      title,
+      des,
+      banner,
+      content,
+      tags,
+      author: authorId,
+      blog_id: blog_id.toLowerCase(),
+      draft: Boolean(draft),
+    });
 
-  let blog = new Blogs({
-    title,
-    des,
-    banner,
-    content,
-    tags,
-    author: authorId,
-    blog_id,
-    draft: Boolean(draft),
-  });
+    blog
+      .save()
+      .then((blog) => {
+        let incrementVal = draft ? 0 : 1;
+        User.findOneAndUpdate(
+          { _id: authorId },
+          {
+            $inc: { "account_info.total_posts": incrementVal },
+            $push: { blogs: blog._id },
+          }
+        )
+          .then((user) => {
+            return res.status(200).json({ id: blog.blog_id });
+          })
+          .catch((err) => {
+            res.status(500).json({ error: err.message });
+          });
+      })
+      .catch((err) => {
+        res.status(500).json({ error: err.message });
+      });
+  }
+});
 
-  blog
-    .save()
-    .then((blog) => {
-      let incrementVal = draft ? 0 : 1;
-      User.findOneAndUpdate(
-        { _id: authorId },
-        {
-          $inc: { "account_info.total_posts": incrementVal },
-          $push: { blogs: blog._id },
-        }
-      )
-        .then((user) => {
-          return res.status(200).json({ id: blog.blog_id });
+app.post("/like-blog", verifyJWT, (req, res) => {
+  let user_id = req.user;
+
+  let { _id, islikedByUser } = req.body;
+  let incrementVal = !islikedByUser ? 1 : -1;
+  Blogs.findOneAndUpdate(
+    { _id },
+    { $inc: { "activity.total_likes": incrementVal } }
+  ).then((blog) => {
+    if (!islikedByUser) {
+      let like = new Notification({
+        type: "like",
+        blog: _id,
+        notification_for: blog.author,
+        user: user_id,
+      });
+
+      like.save().then((notification) => {
+        return res.status(200).json({ liked_by_user: true });
+      });
+    } else {
+      Notification.findOneAndDelete({
+        user: user_id,
+        blog: _id,
+        type: "like",
+      })
+        .then((data) => {
+          return res.status(200).json({ liked_by_user: false });
         })
         .catch((err) => {
-          res.status(500).json({ error: err.message });
+          return res.status(500).json({ error: err.message });
         });
+    }
+  });
+});
+
+app.post("/isliked-by-user", verifyJWT, (req, res) => {
+  let user_id = req.user;
+  let { _id } = req.body;
+  Notification.exists({ user: user_id, blog: _id, type: "like" })
+    .then((result) => {
+      return res.status(200).json({ result });
     })
     .catch((err) => {
-      res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message });
     });
+});
+
+app.post("/add-comment", verifyJWT, (req, res) => {
+  let user_id = req.user;
+  let { _id, comment, blog_author } = req.body;
+
+  if (!comment.length) {
+    return res.status(403).json({ error: "Комментарий не может быть пустым" });
+  }
+
+  let commentObj = new Comment({
+    blog_id: _id,
+    blog_author,
+    comment,
+    commented_by: user_id,
+  });
+
+  commentObj.save().then((commentFile) => {
+    let { comment, commentedAt, children } = commentFile;
+
+    Blogs.findOneAndUpdate(
+      { _id },
+      {
+        $push: { comments: commentFile._id },
+        $inc: { "activity.total_comments": 1 },
+        "activity.total_parent_comments": 1,
+      }
+    )
+      .then((blog) => {
+        console.log(blog);
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+    let notificationObj = {
+      type: "comment",
+      blog: _id,
+      notification_for: blog_author,
+      user: user_id,
+      comment: commentFile._id,
+    };
+    new Notification(notificationObj)
+      .save()
+      .then((notification) => {
+        console.log("new notification");
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+    return res.status(200).json({
+      comment,
+      commentedAt,
+      _id: commentFile._id,
+      user_id,
+      children,
+    });
+  });
 });
 
 app.listen(3000, () => {

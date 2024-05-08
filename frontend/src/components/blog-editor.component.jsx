@@ -14,12 +14,14 @@ import { tools } from "../components/tools.component";
 import { translate } from "./translate-editor.component";
 import { UserContext } from "../App";
 import { useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 
 const BlogEditor = () => {
   const navigate = useNavigate();
   let {
     userAuth: { access_token },
   } = useContext(UserContext);
+  let { blog_id } = useParams();
   let {
     blog,
     blog: { title, banner, content, tags, des },
@@ -39,7 +41,7 @@ const BlogEditor = () => {
       setTextEditor(
         new EditorJS({
           holderId: "text-Editor",
-          data: content,
+          data: Array.isArray(content) ? content[0] : content,
           placeholder: "Начните писать...",
           tools: tools,
           i18n: translate,
@@ -69,9 +71,13 @@ const BlogEditor = () => {
           draft: true,
         };
         axios
-          .post(import.meta.env.VITE_SERVER_DOMAIN + "/create-blog", blogObj, {
-            headers: { Authorization: `Bearer ${access_token}` },
-          })
+          .post(
+            import.meta.env.VITE_SERVER_DOMAIN + "/create-blog",
+            { ...blogObj, id: blog_id },
+            {
+              headers: { Authorization: `Bearer ${access_token}` },
+            }
+          )
           .then(() => {
             e.target.classList.remove("disable");
             toast.dismiss(loadingToast);

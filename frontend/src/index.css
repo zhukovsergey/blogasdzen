@@ -87,11 +87,11 @@
     }
 
     #textEditor h2, h2{
-        @apply font-inter text-4xl leading-normal font-bold max-md:text-3xl max-md:leading-snug !important;
+        @apply font-inter text-3xl leading-normal font-bold max-md:text-3xl max-md:leading-snug !important;
     }
 
     #textEditor h3, h3 {
-        @apply font-inter text-3xl leading-loose max-md:text-2xl max-md:leading-normal !important;
+        @apply font-inter text-2xl leading-loose max-md:text-2xl max-md:leading-normal !important;
     }
 
     #textEditor *, .blog-page-content *{
