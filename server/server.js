@@ -89,11 +89,11 @@ app.post("/upload", (req, res) => {
   const myFile = req.files.image;
   let myFileName = myFile.name.slice(0, myFile.name.lastIndexOf("."));
   const myFileExt = myFile.name.slice(myFile.name.lastIndexOf(".") + 1);
-  console.log(myFileExt);
+
   let newMyfileName = new Date().getTime() + "." + myFileExt;
 
   // метод mv() помещает файл в папку public
-  console.log(req.files.image);
+
   myFile.mv(`./uploads/${new Date().getMonth()}/${newMyfileName}`, (err) => {
     if (err) {
       console.log(err);
@@ -184,6 +184,59 @@ app.post("/signin", async (req, res) => {
     .catch((err) => {
       console.log(err);
       return res.json({ status: "error", error: "User not found" });
+    });
+});
+
+app.post("/change-password", verifyJWT, (req, res) => {
+  let { currentPassword, newPassword } = req.body;
+  if (!currentPassword.length || !newPassword.length) {
+    return res.status(403).json({ error: "Заполните все поля" });
+  }
+  if (
+    !passwordRegex.test(currentPassword) ||
+    !passwordRegex.test(newPassword)
+  ) {
+    return res.status(403).json({
+      error:
+        "Некорректный пароль. Пароль должен содеражать строчные и прописные буквы и содержать цифры",
+    });
+  }
+  User.findOne({ _id: req.user })
+    .then((user) => {
+      if (user.google_auth) {
+        return res
+          .status(403)
+          .json({ error: "Аккаунт создан через Гугл. Войдите через Гугл" });
+      }
+      bcryptjs.compare(
+        currentPassword,
+        user.personal_info.password,
+        (err, result) => {
+          if (err) {
+            return res.status(403).json({ error: "Wrong password" });
+          }
+          if (!result) {
+            return res.status(403).json({ error: "Wrong password" });
+          }
+          bcryptjs.hash(newPassword, 10, (err, hash) => {
+            User.findOneAndUpdate(
+              { _id: req.user },
+              { "personal_info.password": hash }
+            )
+              .then((u) => {
+                return res.status(200).json({ status: "Успешно изменен" });
+              })
+              .catch((err) => {
+                console.log(err);
+                return res.status(500).json({ status: "error", error: err });
+              });
+          });
+        }
+      );
+    })
+    .catch((err) => {
+      console.log(err);
+      return res.status(500).json({ status: "error", error: err });
     });
 });
 
@@ -537,28 +590,35 @@ app.post("/isliked-by-user", verifyJWT, (req, res) => {
 
 app.post("/add-comment", verifyJWT, (req, res) => {
   let user_id = req.user;
-  let { _id, comment, blog_author } = req.body;
+  let { _id, comment, blog_author, replying_to, notification_id } = req.body;
 
   if (!comment.length) {
     return res.status(403).json({ error: "Комментарий не может быть пустым" });
   }
 
-  let commentObj = new Comment({
+  let commentObj = {
     blog_id: _id,
     blog_author,
     comment,
     commented_by: user_id,
-  });
+  };
 
-  commentObj.save().then((commentFile) => {
+  if (replying_to) {
+    commentObj.parent = replying_to;
+    commentObj.isReply = true;
+  }
+
+  new Comment(commentObj).save().then(async (commentFile) => {
     let { comment, commentedAt, children } = commentFile;
 
     Blogs.findOneAndUpdate(
       { _id },
       {
         $push: { comments: commentFile._id },
-        $inc: { "activity.total_comments": 1 },
-        "activity.total_parent_comments": 1,
+        $inc: {
+          "activity.total_comments": 1,
+          "activity.total_parent_comments": replying_to ? 0 : 1,
+        },
       }
     )
       .then((blog) => {
@@ -568,12 +628,28 @@ app.post("/add-comment", verifyJWT, (req, res) => {
         console.log(err);
       });
     let notificationObj = {
-      type: "comment",
+      type: replying_to ? "reply" : "comment",
       blog: _id,
       notification_for: blog_author,
       user: user_id,
       comment: commentFile._id,
     };
+
+    if (replying_to) {
+      notificationObj.replied_on_comment = replying_to;
+      await Comment.findOneAndUpdate(
+        { _id: replying_to },
+        { $push: { children: commentFile._id } }
+      ).then((replyingToCommentDoc) => {
+        notificationObj.notification_for = replyingToCommentDoc.commented_by;
+      });
+      if (notification_id) {
+        Notification.findOneAndUpdate(
+          { _id: notification_id },
+          { reply: commentFile._id }
+        ).then((notification) => console.log("notification updated"));
+      }
+    }
     new Notification(notificationObj)
       .save()
       .then((notification) => {
@@ -590,6 +666,267 @@ app.post("/add-comment", verifyJWT, (req, res) => {
       children,
     });
   });
+});
+
+app.post("/get-blog-comments", (req, res) => {
+  let { blog_id, skip } = req.body;
+
+  let maxLimit = 5;
+
+  Comment.find({ blog_id, isReply: false })
+    .populate(
+      "commented_by",
+      "personal_info.username personal_info.fullname personal_info.profile_img"
+    )
+    .skip(skip)
+    .limit(maxLimit)
+    .sort({ commentedAt: -1 })
+    .then((comment) => {
+      return res.status(200).json(comment);
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+app.post("/get-replies", (req, res) => {
+  let { _id, skip } = req.body;
+
+  let maxLimit = 5;
+  Comment.findOne({ _id })
+    .populate({
+      path: "children",
+      option: {
+        limit: maxLimit,
+        skip: skip,
+        sort: { commentedAt: -1 },
+      },
+      populate: {
+        path: "commented_by",
+        select:
+          "personal_info.profile_img personal_info.username personal_info.fullname",
+      },
+      select: "-blog_id -updatedAt",
+    })
+    .select("children")
+    .then((doc) => {
+      console.log(doc);
+      return res.status(200).json({ replies: doc.children });
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+const deleteComments = (_id) => {
+  Comment.findOneAndDelete({ _id })
+    .then((comment) => {
+      if (comment.parent) {
+        Comment.findOneAndUpdate(
+          { _id: comment.parent },
+          { $pull: { children: _id } }
+        )
+          .then((data) => console.log("comment delete from parent"))
+          .catch((err) => console.log(err));
+      }
+      Notification.findOneAndDelete({ comment: _id }).then((notification) =>
+        console.log("comment notification deleted")
+      );
+      Notification.findOneAndDelete({ reply: _id }).then((notification) => {
+        console.log("reply notification deleted");
+      });
+      Blogs.findOneAndUpdate(
+        { _id: comment.blog_id },
+        {
+          $pull: { comments: _id },
+          $inc: {
+            "activity.total_comments": -1,
+            "activity.total_parent_comments": comment.parent ? 0 : -1,
+          },
+        }
+      ).then((comment) => {
+        if (comment.children?.length) {
+          comment.children.map((replies) => {
+            deleteComments(replies);
+          });
+        }
+      });
+      if (comment.children?.length) {
+        comment.children.map((replies) => {
+          deleteComments(replies);
+        });
+      }
+    })
+    .catch((err) => console.log(err));
+};
+
+app.post("/delete-comment", verifyJWT, (req, res) => {
+  let user_id = req.user;
+  let { _id } = req.body;
+  Comment.findOne({ _id }).then((comment) => {
+    if (user_id == comment.commented_by || user_id == comment.blog_author) {
+      deleteComments(_id);
+      return res.status(200).json({ success: "Комментарий удален" });
+    } else {
+      return res.status(403).json({ error: "Невозможно удалить комментарий" });
+    }
+  });
+});
+
+app.post("/update-profile", verifyJWT, (req, res) => {
+  let { username, bio, social_links } = req.body;
+  let bioLimit = 200;
+  if (username.length < 3) {
+    return res
+      .status(403)
+      .json({ error: "Имя пользователя должно содержать не менее 3 символов" });
+  }
+  if (bio.length > bioLimit) {
+    return res
+      .status(403)
+      .json({ error: "Поле О себе должно содержать не более 200 символов" });
+  }
+  let socialLinksArr = Object.keys(social_links);
+
+  try {
+    for (let i = 0; i < socialLinksArr.length; i++) {
+      if (social_links[socialLinksArr[i]].length) {
+        let hostname = new URL(social_links[socialLinksArr[i]]).hostname;
+        if (
+          !hostname.includes(`${socialLinksArr[i]}.com`) &&
+          socialLinksArr[i] !== "website"
+        ) {
+          return res
+            .status(403)
+            .json({ error: "Неверная ссылка" + socialLinksArr[i] });
+        }
+      }
+    }
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ error: err.message });
+  }
+  let updateObj = {
+    "personal_info.username": username,
+    "personal_info.bio": bio,
+    social_links,
+  };
+  User.findOneAndUpdate({ _id: req.user }, updateObj, {
+    runValidators: true,
+  })
+    .then(() => {
+      return res.status(200).json({ username });
+    })
+    .catch((err) => {
+      if (err.code == 11000) {
+        return res
+          .status(403)
+          .json({ error: "Такое имя пользователя уже существует" });
+      }
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+app.post("/update-profile-img", verifyJWT, (req, res) => {
+  let { url } = req.body;
+  User.findOneAndUpdate({ _id: req.user }, { "personal_info.profile_img": url })
+    .then(() => {
+      return res.status(200).json({ profile_img: url });
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+app.get("/new-notification", verifyJWT, (req, res) => {
+  let user_id = req.user;
+  Notification.exists({
+    notification_for: user_id,
+    seen: false,
+    user: { $ne: user_id },
+  })
+    .then((result) => {
+      if (result) {
+        return res.status(200).json({ new_notification_available: true });
+      } else {
+        return res.status(200).json({ new_notification_available: false });
+      }
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+app.post("/notifications", verifyJWT, (req, res) => {
+  let user_id = req.user;
+  let { page, filter, deletedDocCount } = req.body;
+  let maxLimit = 10;
+
+  let findQuery = { notification_for: user_id, user: { $ne: user_id } };
+  let skipDocs = (page - 1) * maxLimit;
+
+  if (filter !== "Все") {
+    findQuery.type = filter;
+  }
+  if (filter == "Лайки") {
+    findQuery.type = "like";
+  }
+  if (filter == "Комментарии") {
+    findQuery.type = "comment";
+  }
+  if (filter == "Ответы") {
+    findQuery.type = "reply";
+  }
+  if (deletedDocCount) {
+    skipDocs = deletedDocCount;
+  }
+
+  Notification.find(findQuery)
+    .skip(skipDocs)
+    .limit(maxLimit)
+    .populate("blog", "title blog_id")
+    .populate(
+      "user",
+      "personal_info.fullname personal_info.username personal_info.profile_img"
+    )
+    .populate("comment", "comment")
+    .populate("replied_on_comment", "comment")
+    .populate("reply", "comment")
+    .sort({ created_at: -1 })
+    .select("createdAt type seen reply")
+    .then((notifications) => {
+      return res.status(200).json({ notifications });
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
+});
+
+app.post("/all-notifications-count", verifyJWT, (req, res) => {
+  let user_id = req.user;
+  console.log(user_id);
+  let { filter } = req.body;
+  let findQuery = { notification_for: user_id, user: { $ne: user_id } };
+  if (filter !== "Все") {
+    findQuery.type = filter;
+  }
+  if (filter == "Лайки") {
+    findQuery.type = "like";
+  }
+  if (filter == "Комментарии") {
+    findQuery.type = "comment";
+  }
+  if (filter == "Ответы") {
+    findQuery.type = "reply";
+  }
+  Notification.countDocuments(findQuery)
+    .then((count) => {
+      console.log(count);
+      return res.status(200).json({ totalDocs: count });
+    })
+    .catch((err) => {
+      return res.status(500).json({ error: err.message });
+    });
 });
 
 app.listen(3000, () => {

@@ -8,7 +8,9 @@ import BlogInteraction from "../components/blog-interaction.component";
 import BlogPostCard from "../components/blog-post.component";
 import BlogContent from "../components/blog-content.component";
 import Helmet from "react-helmet";
-import CommentsContainer from "../components/comments.component";
+import CommentsContainer, {
+  fetchComments,
+} from "../components/comments.component";
 
 export const blogStructure = {
   title: "",
@@ -45,7 +47,14 @@ const BlogPage = () => {
       .post(import.meta.env.VITE_SERVER_DOMAIN + "/get-blog", {
         blog_id,
       })
-      .then(({ data: { blog } }) => {
+      .then(async ({ data: { blog } }) => {
+        blog.comments = await fetchComments({
+          blog_id: blog._id,
+          setParentCommentCountFun: setTotalParentCommentsLoaded,
+        });
+
+        setBlog(blog);
+
         axios
           .post(import.meta.env.VITE_SERVER_DOMAIN + "/search-blogs", {
             tag: blog.tags[0],
@@ -55,7 +64,7 @@ const BlogPage = () => {
           .then(({ data }) => {
             setSimilarBlogs(data.blogs);
           });
-        setBlog(blog);
+
         setLoading(false);
       })
       .catch((err) => {
